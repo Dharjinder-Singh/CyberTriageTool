@@ -1,0 +1,127 @@
+## Cyber Forensics Report: System Threat Analysis
+
+**Report Date:** December 12, 2024
+
+**Prepared for:** Cyber Forensics Expert
+
+**Introduction:**
+
+This report summarizes the threat activity detected on a compromised system, based on provided Windows Security logs and Sysmon events.  The data reveals a sophisticated and multi-staged attack leveraging various techniques to achieve persistence, privilege escalation, and credential access. The timeline suggests the attacker had significant dwell time on the system.
+
+
+**Threat Actors & Tactics:**
+
+The observed tactics, techniques, and procedures (TTPs) strongly suggest the involvement of a sophisticated threat actor, potentially an advanced persistent threat (APT) group or a financially motivated cybercriminal group with advanced capabilities.  The use of multiple tools and techniques points towards a high level of expertise and operational security (OPSEC) awareness (although some OPSEC mistakes were made, as detailed below).  The attacker employed various techniques from the MITRE ATT&CK framework, which are categorized below:
+
+
+**1. Initial Access:**
+
+* **Possible RDP Brute-forcing/Compromise:** Evidence points towards potential remote desktop protocol (RDP) attacks, including logon attempts from localhost (likely post-exploitation internal pivoting) and RDP port changes from standard port 3389 to non-standard port (50). The use of RDP tunneling tools (plink.exe) further supports this, demonstrating the adversary’s attempts to maintain covert communication.
+
+* **Webshell Compromise:** Suspicious scripting in a WMI consumer and suspicious process activity originating from a web server process (`w3wp.exe`) suggests the attacker also compromised the system through a web application vulnerability. The command lines (`cmd.exe /c net user`) show post-exploitation activities typical of a webshell takeover.
+
+**2. Persistence:**
+
+* **Registry Manipulation:** The attacker modified several registry keys for persistence, including:
+    * CurrentVersion\Run, RunOnce, RunOnceEx keys for auto-execution.
+    * Services keys to install new malicious services or modify legitimate services (e.g., TermService).
+    * Image File Execution Options (IFEO) keys for hijacking legitimate processes. This was achieved via processes like `reg.exe`, `RDPWrap-v1.6.2\RDPWInst.exe` (RDP Wrapper installation).
+
+* **Scheduled Tasks:** Malicious scheduled tasks were created and deleted, showcasing the attacker's attempts at persistence and evasion.  The use of `schtasks.exe` is observed with suspicious command lines and XML configurations.
+
+* **Shim Database Manipulation:** New custom shim databases were created and registry keys related to the shim database modified.
+
+* **WMI Event Consumer:** A malicious script was observed in a WMI event consumer, demonstrating persistent backdoor functionality.
+
+**3. Privilege Escalation:**
+
+* **Pass-the-Hash (PtH):** Multiple successful attempts at Pass-the-Hash (PtH) attacks are indicated. This involved obtaining administrator credentials from another compromised host and using them for remote logons, indicating lateral movement.
+
+* **UAC Bypass:** Several attempts were made to bypass User Account Control (UAC) limitations:
+    * Using Event Viewer manipulation (`eventvwr.exe`).
+    * Utilizing `sdclt.exe` (Security Descriptor Control).
+    * Exploiting the `cmstp.exe` vulnerability, a known UAC bypass mechanism.
+    * Modifying App Path keys.
+    * Windows Media Player exploitation.
+    * Modifying the `HideFileExt` registry key.
+    * Exploiting the `mcx2prov.exe` vulnerability.
+    * Using `cliconfg.exe` and `sysprep.exe` for UAC bypass.
+    * UACME:  Multiple instances of UACME (User Account Control ME) exploits were used, attempting to elevate privileges via various techniques.
+    * Mocking trusted Windows folders.
+    * Using the `.NET Code Profiler` on `mmc.exe`.
+    * `changepk.exe` and `slui.exe` exploitation.
+
+
+* **Exploiting Vulnerabilities:** The attacker leveraged vulnerabilities such as `CVE-2020-0796` (SMBv3 Ghost) for local privilege escalation.
+
+* **Service Installation:** A service was installed using `sc.exe` with a malicious binary path, achieving persistence and execution with system privileges.  The use of `psexec` was noted, also indicating a method for elevated process creation. The named pipe `\WinPwnagePipe` suggests a reverse shell or other communication channel was employed.
+
+
+**4. Credential Access:**
+
+* **LSASS Memory Dumping:**  Multiple attempts were observed to obtain credentials through memory dumping techniques, targeting `lsass.exe`. Tools like `procdump.exe`, `Outflank-Dumpert.exe`, `AndrewSpecial.exe` and potentially Mimikatz were used. `Mimikatz` was also determined to be used via PowerShell, indicating the attacker's attempts to access sensitive information using this technique.
+
+* **Keylogger:**  Detection of a keylogger (`Get-Keystrokes.ps1`) implies the attacker aimed to acquire credentials through this malware.
+
+* **Accessing WinAPI for Credential Dumping:** Evidence shows the use of the WinAPI via PowerShell to achieve credential dumping.
+
+* **Direct Syscalls:** The potential use of direct system calls (NtOpenProcess) is an advanced technique used to evade security monitoring tools.
+
+* **Protected Storage Service Access:** Accessing the Protected Storage Service suggests the attacker attempted to obtain more credentials or sensitive data. This was achieved via remote file access, and demonstrates the attacker leveraging these resources from a remote location.
+
+* **Exploiting the `efs.sys` vulnerability:** Evidence points towards using the EfsPotato technique and accessing `spoolsv.exe` for privilege elevation, indicative of gaining access through this vulnerability.
+
+**5. Defense Evasion:**
+
+* **Process Injection:** The attacker used process injection techniques to inject malicious code into legitimate running processes.
+
+* **Registry Key Tampering:** Registry keys associated with event logging and PowerShell were modified to hinder investigation.
+
+* **Clearing Event Logs:** Important Windows Event logs were cleared, an attempt to hinder forensic analysis.
+
+* **In-Memory Execution:** The extensive use of techniques such as reflective DLL injection and process hollowing (using tools like `mimikatz`) allowed the attacker to maintain a stealthy presence in memory.  The use of unmanaged PowerShell further complicates the ability to analyze the attacker's malicious activities by obfuscating their actions.
+* **Masquerading:** The attacker masked malicious binaries with names of legitimate Windows processes.
+* **Unusual Process Parents:**  The attacker spawned processes with unexpected parent processes (e.g., `notepad.exe`, `cmd.exe`), typical of evasion techniques.
+
+
+**6. Exfiltration:**
+
+* **Remote File Copy:** Files were transferred via network shares, indicating potential data exfiltration.  This was achieved with direct file access via `\\*C$`, indicating the adversary had significant control over the compromised system.  Multiple events demonstrate the extraction of data across several directories.
+
+* **Named Pipes:**  The creation and use of several named pipes suggest the attacker established covert communication channels to exfiltrate data.
+
+
+
+**OPSEC Mistakes:**
+
+Despite their advanced techniques, the attacker made some OPSEC mistakes, including:
+
+* **Unquoted Paths:** Using unquoted paths in command lines (`cmd.exe /c command`) provided clues to their activities and can lead to issues in certain operating systems or contexts.
+
+* **Suspicious File Names and Paths:** The presence of obviously malicious file names (e.g., `"plink.exe"`, `"mimikatz.exe"`, and various others) and directories greatly reduced the adversary's OPSEC.
+
+
+**Evidence:**
+
+The evidence collected consists of numerous Windows Security logs (Event IDs: 4624, 4634, 4648, 4656, 4661, 4662, 4663, 4673, 4698, 4699, 4720, 4732, 4741, 4742, 4765, 4794, 5136, 5145) and Sysmon logs (Event IDs: 1, 3, 6, 7, 8, 10, 11, 13, 16, 17, 18, 20).  Furthermore, Windows PowerShell logs and logs from the MSSQLSERVER service provide further information relating to post-exploitation activity and failed login attempts.
+
+**Recommendations:**
+
+A cyber forensics expert should conduct the following investigations:
+
+1. **Full Memory Analysis:** A comprehensive memory analysis should be performed to identify any residual malicious processes or artifacts not captured in logs.
+
+2. **Disk Imaging and Forensic Analysis:** A full disk image of the affected system should be obtained and analyzed using forensic tools to recover deleted files, registry remnants, and other evidence of attacker activity.
+
+3. **Network Forensics:**  Network traffic logs should be examined to identify the origin of the attack, the attacker's C2 server, and the data exfiltrated.
+
+4. **Malware Analysis:** Any malware samples (such as the named binaries) should be analyzed to understand their functionality and capabilities.
+
+5. **Timeline Construction:** A detailed timeline of the events should be created to establish the sequence of actions taken by the attacker.
+
+6. **Incident Response:** Based on the findings, an incident response plan must be implemented to mitigate the risk and prevent future attacks.
+
+
+**Conclusion:**
+
+This compromised system shows evidence of a sophisticated, multi-stage attack.  The attacker demonstrated advanced skills and employed multiple techniques to maintain persistence, achieve privilege escalation and access sensitive data.  A thorough forensic investigation is crucial to fully understand the extent of the compromise, identify the attacker, and implement effective countermeasures.
